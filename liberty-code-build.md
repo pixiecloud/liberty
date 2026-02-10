@@ -1,7 +1,15 @@
+# On your LOCAL PC (create the repo structure)
+mkdir liberty-pipeline
+cd liberty-pipeline
+
+# Create buildspec.yaml
+cat > buildspec.yaml <<'EOF'
 version: 0.2
 
 phases:
   install:
+    runtime-versions:
+      docker: 20
     commands:
       - echo "Installing dependencies..."
       - curl -o /tmp/awscli.zip "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip"
@@ -34,8 +42,8 @@ phases:
   build:
     commands:
       - echo "Uploading to S3..."
-      - aws s3 cp wlp-javaee8-${LIBERTY_VERSION}.zip s3://sosotech-terraform-bucket/liberty/
-      - aws s3 cp wlp/liberty-feature-cache-${LIBERTY_VERSION}.tar.gz s3://sosotech-terraform-bucket/liberty/
+      - aws s3 cp wlp-javaee8-${LIBERTY_VERSION}.zip s3://opentofu-state-bucket-donot-delete2/liberty/
+      - aws s3 cp wlp/liberty-feature-cache-${LIBERTY_VERSION}.tar.gz s3://opentofu-state-bucket-donot-delete2/liberty/
       
       - echo "Building Docker image..."
       - cd docker-build
@@ -56,10 +64,10 @@ phases:
             AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY \
             AWS_DEFAULT_REGION=$AWS_DEFAULT_REGION
         RUN mkdir -p /opt/ibm && \
-            aws s3 cp s3://sosotech-terraform-bucket/liberty/wlp-javaee8-26.0.0.1.zip /tmp/ && \
+            aws s3 cp s3://opentofu-state-bucket-donot-delete2/liberty/wlp-javaee8-26.0.0.1.zip /tmp/ && \
             cd /tmp && unzip wlp-javaee8-26.0.0.1.zip && \
             mv wlp /opt/ibm/wlp && rm wlp-javaee8-26.0.0.1.zip
-        RUN aws s3 cp s3://sosotech-terraform-bucket/liberty/liberty-feature-cache-26.0.0.1.tar.gz /tmp/ && \
+        RUN aws s3 cp s3://opentofu-state-bucket-donot-delete2/liberty/liberty-feature-cache-26.0.0.1.tar.gz /tmp/ && \
             tar -xzf /tmp/liberty-feature-cache-26.0.0.1.tar.gz -C /opt/ibm/wlp/ && \
             rm /tmp/liberty-feature-cache-26.0.0.1.tar.gz
         ENV AWS_ACCESS_KEY_ID= AWS_SECRET_ACCESS_KEY= AWS_DEFAULT_REGION=
@@ -69,23 +77,64 @@ phases:
         DOCKERFILE
       
       - echo "Logging into ECR..."
-      - aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin 368085106192.dkr.ecr.us-east-1.amazonaws.com
+      - aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin 126924000548.dkr.ecr.us-east-1.amazonaws.com
       
       - echo "Building Docker image..."
       - docker build --build-arg AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID} --build-arg AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY} -t liberty-with-deps:${LIBERTY_VERSION} .
       
       - echo "Tagging and pushing to ECR..."
-      - docker tag liberty-with-deps:${LIBERTY_VERSION} 368085106192.dkr.ecr.us-east-1.amazonaws.com/liberty/liberty-base:${LIBERTY_VERSION}
-      - docker tag liberty-with-deps:${LIBERTY_VERSION} 368085106192.dkr.ecr.us-east-1.amazonaws.com/liberty/liberty-base:latest
-      - docker push 368085106192.dkr.ecr.us-east-1.amazonaws.com/liberty/liberty-base:${LIBERTY_VERSION}
-      - docker push 368085106192.dkr.ecr.us-east-1.amazonaws.com/liberty/liberty-base:latest
+      - docker tag liberty-with-deps:${LIBERTY_VERSION} 126924000548.dkr.ecr.us-east-1.amazonaws.com/liberty/liberty-base:${LIBERTY_VERSION}
+      - docker tag liberty-with-deps:${LIBERTY_VERSION} 126924000548.dkr.ecr.us-east-1.amazonaws.com/liberty/liberty-base:latest
+      - docker push 126924000548.dkr.ecr.us-east-1.amazonaws.com/liberty/liberty-base:${LIBERTY_VERSION}
+      - docker push 126924000548.dkr.ecr.us-east-1.amazonaws.com/liberty/liberty-base:latest
 
   post_build:
     commands:
       - echo "Build completed successfully!"
-      - aws s3 ls s3://sosotech-terraform-bucket/liberty/
+      - aws s3 ls s3://opentofu-state-bucket-donot-delete2/liberty/
       - aws ecr describe-images --repository-name liberty/liberty-base --region us-east-1
 
 artifacts:
   files:
     - '**/*'
+EOF
+
+# Create README
+cat > README.md <<'EOF'
+# Liberty Base Image Pipeline
+
+Automated pipeline to build WebSphere Liberty base image with pre-cached features.
+
+## What it does:
+1. Downloads Liberty from IBM
+2. Downloads features from IBM
+3. Uploads to S3
+4. Builds Docker image
+5. Pushes to ECR
+
+## Trigger:
+- Push to main branch
+- Manual trigger via AWS Console
+- Scheduled (monthly on 1st of month)
+EOF
+
+# Push to GitHub
+git init
+git add .
+git commit -m "Initial commit - Liberty pipeline"
+git remote add origin https://github.com/yourcompany/liberty-pipeline.git
+git push -u origin main
+
+
+## Step 3: Add IAM Permissions to CodeBuild Role
+# Get the CodeBuild role name
+ROLE_NAME=$(aws iam list-roles --query 'Roles[?contains(RoleName, `codebuild-liberty`)].RoleName' --output text)
+
+# Attach policies
+aws iam attach-role-policy \
+  --role-name $ROLE_NAME \
+  --policy-arn arn:aws:iam::aws:policy/AmazonS3FullAccess
+
+aws iam attach-role-policy \
+  --role-name $ROLE_NAME \
+  --policy-arn arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryPowerUser

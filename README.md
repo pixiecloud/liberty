@@ -13,3 +13,6 @@ Automated pipeline to build WebSphere Liberty base image with pre-cached feature
 - Push to main branch
 - Manual trigger via AWS Console
 - Scheduled (monthly on 1st of month)
+
+git remote set-url origin https:iberty.git
+git push -u origin main
