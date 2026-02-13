@@ -1,0 +1,124 @@
+#!/bin/bash
+
+set -e
+set -x
+
+shopt -s dotglob
+echo "-->Installing application source"
+mv /tmp/src/* ./
+
+#exception handling if newrelic.yml does not exist in the application repo
+{
+  cp -R $HOME/src/main/resources/newrelic.yml /tmp
+} || {
+  echo "not copying newrelic.yml doesnt exist"
+}
+
+if [ $? -eq 0 ]; then
+  curl "https://nexusx.pixiecloud.com:8443/repository/pixiecloud-release/com/newrelic/newrelic/1.0/newrelic-1.0.jar" -o$HOME/src/main/resources/newrelic.jar
+} || {
+  echo "Not curling newrelic jar from nexus: there is no newrelic jar referenced in the jvm.options or there is no jvm.options; proceeding"
+}
+
+if [ -d "$HOME/target" ]; then
+  echo "---> Copy .war in $HOME/artifacts to apps folder"
+  cp -R $HOME/target/*.war /config/dropins/
+fi
+
+if [ -f "$HOME/bin/shutdown.sh" ]; then
+  chmod 755 $HOME/bin/shutdown.sh
+fi
+
+if [ -f "$HOME/bin/init.sh" ]; then
+  chmod 755 $HOME/bin/init.sh
+fi
+
+if [ -f "$HOME/config/server.env" ]; then
+  echo "-->>Append $HOME/config/server.env to /config/server.env"
+  cat $HOME/config/server.env >> /config/server.env
+fi
+
+if [ -f "$HOME/config/jvm.options" ]; then
+  echo "-->>Process and append $HOME/config/jvm.options to /config/jvm.options"
+
+  {
+    if [ "$APP_REMOVE_SRC_CODE" == "true" ]; then
+      mkdir -p $HOME/src/main/resources
+      cp -R /tmp/newrelic.yml  $HOME/src/main/resources/newrelic.yml
+      grep -c javaagent:/opt/app-root/src/src/main/resources/newrelic.jar $HOME/config/jvm.options
+    fi
+  } || {
+    echo "not curling newrelic jar from nexus: there is no jvm.options; proceeding"
+  }
+
+  APP_MINHEAP=$(grep -i was $HOME/config/jvm.options)
+  if [ ! -z "$APP_MINHEAP" ]; then
+    sed -i "s/-Xmx\w*/$APP_MINHEAP/" /config/jvm.options
+    sed -i "s/-Xmx\w*/$APP_MINHEAP/" $HOME/config/jvm.options
+  fi
+
+  APP_MAXHEAP=$(grep -i xmx $HOME/config/jvm.options)
+  if [ ! -z "$APP_MAXHEAP" ]; then
+    sed -i "s/-Xmx\w*/$APP_MAXHEAP/" /config/jvm.options
+    sed -i "s/-Xmx\w*/$APP_MAXHEAP/" $HOME/config/jvm.options
+  fi
+
+  cat $HOME/config/jvm.options >> /config/jvm.options
+fi
+
+if [ -f "$HOME/config/overwrites/jvm.options" ]; then
+  echo "--->>overwriting base jvm.opts with developer overwrites/jvm.opts"
+  cp $HOME/config/overwrites/jvm.options /config/jvm.options
+fi
+
+if [ -d "$HOME/config" ]; then
+  if [ -f "$HOME/config/server.xml" ]; then
+    echo "---> Copy server.xml to /config/project/ directory"
+    cp $HOME/config/server.xml /config/project/
+  fi
+fi
+
+echo "---> Installing App features"
+
+{
+  #This installs features listed in the main default server.xml
+  # UPDATED: Use local feature cache instead of IBM repository
+  installUtility install --acceptLicense --from=/opt/ibm/wlp/feature-cache defaultServer
+  #This installs any features that are application specific by passing to the app specific server.xml
+  # UPDATED: Use local feature cache instead of IBM repository
+  installUtility install --acceptLicense --from=/opt/ibm/wlp/feature-cache /config/project/server.xml
+  # install the was admin center
+  # UPDATED: Use local feature cache instead of IBM repository
+  installUtility install --acceptLicense --from=/opt/ibm/wlp/feature-cache adminCenter-1.0
+} || {
+  echo "failed to update ibm Liberty feature library, using the s2i base image copy of the library"
+}
+
+echo "Returning into the assemble script"
+
+if [ ! -z "$nexus_cert" ]; then
+  destination_location="/opt/ibm/wlp/usr/shared/resources/certs"
+  array=$nexus_cert
+  source urldownload.sh $array $destination_location $onProblemFail
+  cert_load_source_location="${destination_location}/**"
+else
+  cert_load_source_location="$HOME/openshift-templates/certs/**"
+fi
+
+if [ ! -z "$runtime_dependency_urls" ]; then
+  input=/tmp/dependency.params
+  runtime_dependency_urls=`cat $input | grep -l RUNTIME_DEPENDENCY_URLS | tr -d '"' | tr -d "RUNTIME_DEPENDENCY_URLS="`
+fi
+
+cd /opt/ibm/wlp/usr/shared/resources
+mkdir certs
+
+cd /usr/local/s2i
+
+onProblemFail="true"
+
+source loadCertificate.sh $cert_load_source_location
+source backupCerts.sh
+
+fix-permissions ./
+fix-permissions /config/project/

@@ -1,18 +1,8 @@
-# Liberty Base Image Pipeline
+# WebSphere Liberty Base Image
 
-Automated pipeline to build WebSphere Liberty base image with pre-cached features.
+Base image for Liberty applications at pixiecloud NC.
 
-## What it does:
-1. Downloads Liberty from IBM
-2. Downloads features from IBM
-3. Uploads to S3
-4. Builds Docker image
-5. Pushes to ECR
-
-## Trigger:
-- Push to main branch
-- Manual trigger via AWS Console
-- Scheduled (monthly on 1st of month)
-
-git remote set-url origin https:iberty.git
-git push -u origin main
+## Usage
+```dockerfile
+FROM ghe.pixiecloud.com/was-liberty-base-image:latest
+```

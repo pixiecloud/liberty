@@ -1,0 +1,3 @@
+#!/bin/bash
+echo "This is the Liberty base image."
+echo "To use this image, extend it with your application."

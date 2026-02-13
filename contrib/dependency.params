@@ -1,0 +1,1 @@
+RUNTIME_DEPENDENCY_URLS="https://nexusx.pixiecloud.com:8443/repository/devops-raw/liberty-dependency/db2jcc-4.8.jar,https://nexusx.pixiecloud.com:8443/repository/devops-raw/liberty-dependency/ojdbc8.jar"
