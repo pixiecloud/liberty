@@ -3,7 +3,7 @@ version: 0.2
 env:
   variables:
     LIBERTY_VERSION: "26.0.0.1"
-    ECR_REPO: "liberty"
+    ECR_REPO: "liberty/liberty-base"
     IMAGE_TAG: "26.0.0.1"
 
 phases:
@@ -58,8 +58,21 @@ phases:
       - echo "Pushing image to ECR..."
       - docker push $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$ECR_REPO:$IMAGE_TAG
       - docker push $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$ECR_REPO:latest
+      
+      - echo "Scanning image with Trivy..."
+      - export IMAGE_URI="$AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$ECR_REPO:$IMAGE_TAG"
+      - |
+        curl -X POST https://trivy.s3gis.be/api/scan/image \
+          -H "Content-Type: application/json" \
+          -d "{\"image\": \"$IMAGE_URI\"}" \
+          -o trivy-scan-result.json
+      
+      - echo "Trivy scan submitted successfully"
+      - cat trivy-scan-result.json
+      
       - echo "Liberty base image successfully pushed to ECR"
       - echo "Image URI - $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$ECR_REPO:$IMAGE_TAG"
       - echo "Image URI - $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$ECR_REPO:latest"
       - echo "Size approximately 300MB without feature cache"
       - echo "Teams download feature cache from CodeArtifact during builds"
+      - echo "Security scan results available at https://trivy.s3gis.be"
