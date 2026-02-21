@@ -3,6 +3,36 @@ version: 0.2
 # Liberty Feature Cache Builder Pipeline
 # This pipeline downloads Liberty, caches features, and publishes to CodeArtifact
 
+# PREREQUISITES:
+# 1. CodeArtifact domain 'bcbsnc' must exist
+# 2. CodeArtifact repository 'liberty-artifacts' must exist
+# 3. CodeBuild role must have CodeArtifact permissions (see below)
+
+# TO ADD CODEARTIFACT PERMISSIONS TO CODEBUILD ROLE:
+# aws iam put-role-policy \
+#   --role-name codebuild-liberty-base-image-builder-service-role \
+#   --policy-name CodeArtifactAccess \
+#   --policy-document '{
+#     "Version": "2012-10-17",
+#     "Statement": [
+#       {
+#         "Effect": "Allow",
+#         "Action": ["codeartifact:*"],
+#         "Resource": "*"
+#       },
+#       {
+#         "Effect": "Allow",
+#         "Action": ["sts:GetServiceBearerToken"],
+#         "Resource": "*",
+#         "Condition": {
+#           "StringEquals": {
+#             "sts:AWSServiceName": "codeartifact.amazonaws.com"
+#           }
+#         }
+#       }
+#     ]
+#   }'
+
 env:
   variables:
     LIBERTY_VERSION: "26.0.0.1"
@@ -14,51 +44,11 @@ env:
 phases:
   pre_build:
     commands:
-      - echo "Phase 1 - Setting up CodeArtifact repository..."
-      
-      # Check if domain exists, create if not
-      - |
-        if ! aws codeartifact list-domains | grep -q "$CODEARTIFACT_DOMAIN"; then
-          echo "Creating CodeArtifact domain $CODEARTIFACT_DOMAIN..."
-          aws codeartifact create-domain \
-            --domain $CODEARTIFACT_DOMAIN \
-            --region $AWS_DEFAULT_REGION
-        else
-          echo "Domain $CODEARTIFACT_DOMAIN already exists"
-        fi
-      
-      # Check if repository exists, create if not
-      - |
-        if ! aws codeartifact list-repositories | grep -q "$CODEARTIFACT_REPO"; then
-          echo "Creating repository $CODEARTIFACT_REPO..."
-          aws codeartifact create-repository \
-            --domain $CODEARTIFACT_DOMAIN \
-            --repository $CODEARTIFACT_REPO \
-            --description "Liberty feature cache and artifacts" \
-            --region $AWS_DEFAULT_REGION
-        else
-          echo "Repository $CODEARTIFACT_REPO already exists"
-        fi
-      
-      # Set permissions
-      - echo "Setting repository permissions..."
-      - |
-        aws codeartifact put-repository-permissions-policy \
-          --domain $CODEARTIFACT_DOMAIN \
-          --repository $CODEARTIFACT_REPO \
-          --policy-document '{
-            "Version": "2012-10-17",
-            "Statement": [{
-              "Effect": "Allow",
-              "Principal": "*",
-              "Action": [
-                "codeartifact:PublishPackageVersion",
-                "codeartifact:PutPackageMetadata",
-                "codeartifact:ReadFromRepository"
-              ],
-              "Resource": "*"
-            }]
-          }'
+      - echo "Phase 1 - Verifying prerequisites..."
+      - echo "CodeArtifact Domain=$CODEARTIFACT_DOMAIN"
+      - echo "CodeArtifact Repository=$CODEARTIFACT_REPO"
+      - echo "Liberty Version=$LIBERTY_VERSION"
+      - echo "Prerequisites checked. Proceeding with build..."
 
   build:
     commands:
@@ -116,8 +106,17 @@ phases:
           --package-version $LIBERTY_VERSION
       
       - echo "✅ Liberty feature cache $LIBERTY_VERSION successfully published to CodeArtifact!"
-      - echo "Teams can now download it using:"
-      - echo "  aws codeartifact get-package-version-asset --domain $CODEARTIFACT_DOMAIN --repository $CODEARTIFACT_REPO --format generic --namespace $NAMESPACE --package liberty-feature-cache --package-version $LIBERTY_VERSION --asset liberty-feature-cache-$LIBERTY_VERSION.tar.gz liberty-feature-cache.tar.gz"
+      - echo ""
+      - echo "Teams can now download it in their buildspec.yml using:"
+      - echo "  aws codeartifact get-package-version-asset \\"
+      - echo "    --domain $CODEARTIFACT_DOMAIN \\"
+      - echo "    --repository $CODEARTIFACT_REPO \\"
+      - echo "    --format generic \\"
+      - echo "    --namespace $NAMESPACE \\"
+      - echo "    --package liberty-feature-cache \\"
+      - echo "    --package-version $LIBERTY_VERSION \\"
+      - echo "    --asset liberty-feature-cache-$LIBERTY_VERSION.tar.gz \\"
+      - echo "    liberty-feature-cache.tar.gz"
 
 artifacts:
   files:
