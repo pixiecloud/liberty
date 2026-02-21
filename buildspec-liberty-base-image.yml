@@ -3,7 +3,7 @@ version: 0.2
 env:
   variables:
     LIBERTY_VERSION: "26.0.0.1"
-    ECR_REPO: "liberty/liberty-base"
+    ECR_REPO: "liberty"
     IMAGE_TAG: "26.0.0.1"
 
 phases:
