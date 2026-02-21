@@ -1,16 +1,10 @@
 version: 0.2
 
-# Liberty Base Image Builder
-# Builds a minimal Liberty base image WITHOUT feature cache
-# Teams will download feature cache from CodeArtifact during their builds
-
 env:
   variables:
     LIBERTY_VERSION: "26.0.0.1"
     ECR_REPO: "liberty/liberty-base"
     IMAGE_TAG: "26.0.0.1"
-  exported-variables:
-    - AWS_ACCOUNT_ID
 
 phases:
   pre_build:
@@ -20,39 +14,29 @@ phases:
       - export AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION:-us-east-1}
       - echo "Account ID=$AWS_ACCOUNT_ID"
       - echo "Region=$AWS_DEFAULT_REGION"
-      
       - echo "Logging in to Amazon ECR..."
       - aws ecr get-login-password --region $AWS_DEFAULT_REGION | docker login --username AWS --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com
-      
       - echo "Checking if ECR repository exists..."
-      - |
-        if ! aws ecr describe-repositories --repository-names $ECR_REPO 2>/dev/null; then
-          echo "Creating ECR repository $ECR_REPO..."
-          aws ecr create-repository --repository-name $ECR_REPO
-        fi
+      - aws ecr describe-repositories --repository-names $ECR_REPO 2>/dev/null || aws ecr create-repository --repository-name $ECR_REPO
 
   build:
     commands:
       - echo "Building Liberty base image..."
       - echo "Version=$LIBERTY_VERSION"
-      - echo "Base image=icr.io/appcafe/websphere-liberty:kernel-java11-openj9-ubi"
-      
+      - echo "Base image from IBM Container Registry"
       - |
-        cat > Dockerfile <<'EOF'
+        cat > Dockerfile <<'DOCKERFILEEOF'
         FROM icr.io/appcafe/websphere-liberty:kernel-java11-openj9-ubi
 
         LABEL maintainer="BCBSNC Middleware Team" \
               version="26.0.0.1" \
-              description="Minimal Liberty base image - feature cache provided via CodeArtifact"
+              description="Minimal Liberty base image - feature cache via CodeArtifact"
 
         USER root
 
-        # Install basic utilities
         RUN yum install -y curl unzip tar gzip && \
-            yum clean all
-
-        # Set proper permissions for Liberty directories
-        RUN chown -R 1001:0 /opt/ibm/wlp && \
+            yum clean all && \
+            chown -R 1001:0 /opt/ibm/wlp && \
             chmod -R g+rw /opt/ibm/wlp
 
         USER 1001
@@ -62,11 +46,9 @@ phases:
         WORKDIR /opt/ibm/wlp
 
         CMD ["/opt/ibm/wlp/bin/server", "run", "defaultServer"]
-        EOF
-      
+        DOCKERFILEEOF
       - echo "Building Docker image..."
       - docker build -t $ECR_REPO:$IMAGE_TAG .
-      
       - echo "Tagging images..."
       - docker tag $ECR_REPO:$IMAGE_TAG $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$ECR_REPO:$IMAGE_TAG
       - docker tag $ECR_REPO:$IMAGE_TAG $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$ECR_REPO:latest
@@ -76,12 +58,8 @@ phases:
       - echo "Pushing image to ECR..."
       - docker push $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$ECR_REPO:$IMAGE_TAG
       - docker push $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$ECR_REPO:latest
-      
-      - echo "✅ Liberty base image successfully pushed to ECR!"
-      - echo ""
-      - echo "Image URI:"
-      - echo "  $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$ECR_REPO:$IMAGE_TAG"
-      - echo "  $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$ECR_REPO:latest"
-      - echo ""
-      - echo "Size: ~300MB (minimal, no feature cache)"
-      - echo "Teams will download feature cache from CodeArtifact during application builds"
+      - echo "Liberty base image successfully pushed to ECR"
+      - echo "Image URI - $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$ECR_REPO:$IMAGE_TAG"
+      - echo "Image URI - $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$ECR_REPO:latest"
+      - echo "Size approximately 300MB without feature cache"
+      - echo "Teams download feature cache from CodeArtifact during builds"
