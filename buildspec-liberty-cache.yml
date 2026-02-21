@@ -1,0 +1,125 @@
+version: 0.2
+
+# Liberty Feature Cache Builder Pipeline
+# This pipeline downloads Liberty, caches features, and publishes to CodeArtifact
+
+env:
+  variables:
+    LIBERTY_VERSION: "26.0.0.1"
+    CODEARTIFACT_DOMAIN: "bcbsnc"
+    CODEARTIFACT_REPO: "liberty-artifacts"
+    NAMESPACE: "liberty"
+    AWS_DEFAULT_REGION: "us-east-1"
+
+phases:
+  pre_build:
+    commands:
+      - echo "Phase 1 - Setting up CodeArtifact repository..."
+      
+      # Check if domain exists, create if not
+      - |
+        if ! aws codeartifact list-domains | grep -q "$CODEARTIFACT_DOMAIN"; then
+          echo "Creating CodeArtifact domain $CODEARTIFACT_DOMAIN..."
+          aws codeartifact create-domain \
+            --domain $CODEARTIFACT_DOMAIN \
+            --region $AWS_DEFAULT_REGION
+        else
+          echo "Domain $CODEARTIFACT_DOMAIN already exists"
+        fi
+      
+      # Check if repository exists, create if not
+      - |
+        if ! aws codeartifact list-repositories | grep -q "$CODEARTIFACT_REPO"; then
+          echo "Creating repository $CODEARTIFACT_REPO..."
+          aws codeartifact create-repository \
+            --domain $CODEARTIFACT_DOMAIN \
+            --repository $CODEARTIFACT_REPO \
+            --description "Liberty feature cache and artifacts" \
+            --region $AWS_DEFAULT_REGION
+        else
+          echo "Repository $CODEARTIFACT_REPO already exists"
+        fi
+      
+      # Set permissions
+      - echo "Setting repository permissions..."
+      - |
+        aws codeartifact put-repository-permissions-policy \
+          --domain $CODEARTIFACT_DOMAIN \
+          --repository $CODEARTIFACT_REPO \
+          --policy-document '{
+            "Version": "2012-10-17",
+            "Statement": [{
+              "Effect": "Allow",
+              "Principal": "*",
+              "Action": [
+                "codeartifact:PublishPackageVersion",
+                "codeartifact:PutPackageMetadata",
+                "codeartifact:ReadFromRepository"
+              ],
+              "Resource": "*"
+            }]
+          }'
+
+  build:
+    commands:
+      - echo "Phase 2 - Downloading Liberty $LIBERTY_VERSION..."
+      - mkdir -p /tmp/liberty-build
+      - cd /tmp/liberty-build
+      
+      # Download Liberty
+      - wget https://public.dhe.ibm.com/ibmdl/export/pub/software/websphere/wasdev/downloads/wlp/$LIBERTY_VERSION/wlp-javaee8-$LIBERTY_VERSION.zip
+      - unzip wlp-javaee8-$LIBERTY_VERSION.zip
+      - cd wlp
+      
+      - echo "Phase 3 - Downloading features to local cache..."
+      - |
+        ./bin/installUtility download --location=./feature-cache --acceptLicense \
+          beanValidation-2.0 \
+          cdi-2.0 \
+          jaxrs-2.1 \
+          jdbc-4.2 \
+          jndi-1.0 \
+          jpa-2.2 \
+          mpMetrics-3.0 \
+          mpHealth-3.0
+      
+      - echo "Phase 4 - Creating feature cache archive..."
+      - tar -czf liberty-feature-cache-$LIBERTY_VERSION.tar.gz feature-cache/
+      
+      - echo "Phase 5 - Calculating SHA256 hash..."
+      - HASH=$(sha256sum liberty-feature-cache-$LIBERTY_VERSION.tar.gz | awk '{print $1}')
+      - echo "Hash = $HASH"
+      
+      - echo "Phase 6 - Publishing to CodeArtifact..."
+      - |
+        aws codeartifact publish-package-version \
+          --domain $CODEARTIFACT_DOMAIN \
+          --repository $CODEARTIFACT_REPO \
+          --format generic \
+          --namespace $NAMESPACE \
+          --package liberty-feature-cache \
+          --package-version $LIBERTY_VERSION \
+          --asset-name liberty-feature-cache-$LIBERTY_VERSION.tar.gz \
+          --asset-content liberty-feature-cache-$LIBERTY_VERSION.tar.gz \
+          --asset-sha256 $HASH
+
+  post_build:
+    commands:
+      - echo "Phase 7 - Verifying upload..."
+      - |
+        aws codeartifact describe-package-version \
+          --domain $CODEARTIFACT_DOMAIN \
+          --repository $CODEARTIFACT_REPO \
+          --format generic \
+          --namespace $NAMESPACE \
+          --package liberty-feature-cache \
+          --package-version $LIBERTY_VERSION
+      
+      - echo "✅ Liberty feature cache $LIBERTY_VERSION successfully published to CodeArtifact!"
+      - echo "Teams can now download it using:"
+      - echo "  aws codeartifact get-package-version-asset --domain $CODEARTIFACT_DOMAIN --repository $CODEARTIFACT_REPO --format generic --namespace $NAMESPACE --package liberty-feature-cache --package-version $LIBERTY_VERSION --asset liberty-feature-cache-$LIBERTY_VERSION.tar.gz liberty-feature-cache.tar.gz"
+
+artifacts:
+  files:
+    - '**/*'
+  name: liberty-feature-cache-build-$(date +%Y%m%d-%H%M%S)
