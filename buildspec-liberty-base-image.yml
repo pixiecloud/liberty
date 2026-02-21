@@ -8,12 +8,19 @@ env:
   variables:
     LIBERTY_VERSION: "26.0.0.1"
     ECR_REPO: "liberty/liberty-base"
-    AWS_DEFAULT_REGION: "us-east-1"
     IMAGE_TAG: "26.0.0.1"
+  exported-variables:
+    - AWS_ACCOUNT_ID
 
 phases:
   pre_build:
     commands:
+      - echo "Getting AWS Account ID..."
+      - export AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+      - export AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION:-us-east-1}
+      - echo "Account ID=$AWS_ACCOUNT_ID"
+      - echo "Region=$AWS_DEFAULT_REGION"
+      
       - echo "Logging in to Amazon ECR..."
       - aws ecr get-login-password --region $AWS_DEFAULT_REGION | docker login --username AWS --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com
       
